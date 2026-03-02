@@ -26,6 +26,10 @@ namespace Azure.Messaging.WebPubSub.Clients
         private static readonly JsonEncodedText DataPropertyNameBytes = JsonEncodedText.Encode(DataPropertyName);
         private const string EventPropertyName = "event";
         private static readonly JsonEncodedText EventPropertyNameBytes = JsonEncodedText.Encode(EventPropertyName);
+        private const string InvocationIdPropertyName = "invocationId";
+        private static readonly JsonEncodedText InvocationIdPropertyNameBytes = JsonEncodedText.Encode(InvocationIdPropertyName);
+        private const string TargetPropertyName = "target";
+        private static readonly JsonEncodedText TargetPropertyNameBytes = JsonEncodedText.Encode(TargetPropertyName);
         private const string NoEchoPropertyName = "noEcho";
         private static readonly JsonEncodedText NoEchoPropertyNameBytes = JsonEncodedText.Encode(NoEchoPropertyName);
 
@@ -54,6 +58,9 @@ namespace Azure.Messaging.WebPubSub.Clients
         private static readonly JsonEncodedText LeaveGroupTypeBytes = JsonEncodedText.Encode("leaveGroup");
         private static readonly JsonEncodedText SendToGroupTypeBytes = JsonEncodedText.Encode("sendToGroup");
         private static readonly JsonEncodedText SendEventTypeBytes = JsonEncodedText.Encode("event");
+        private static readonly JsonEncodedText InvokeTypeBytes = JsonEncodedText.Encode("invoke");
+        private static readonly JsonEncodedText InvokeResponseTypeBytes = JsonEncodedText.Encode("invokeResponse");
+        private static readonly JsonEncodedText CancelInvocationTypeBytes = JsonEncodedText.Encode("cancelInvocation");
         private static readonly JsonEncodedText SequenceAckTypeBytes = JsonEncodedText.Encode("sequenceAck");
 
         private const byte Quote = (byte)'"';
@@ -82,12 +89,14 @@ namespace Azure.Messaging.WebPubSub.Clients
                 string from = null;
                 FromType fromType = FromType.Server;
                 AckMessageError errorDetail = null;
-                WebPubSubDataType dataType = WebPubSubDataType.Text;
+                WebPubSubDataType? dataType = null;
                 string userId = null;
                 string connectionId = null;
                 string reconnectionToken = null;
                 string message = null;
                 string fromUserId = null;
+                string invocationId = null;
+                string target = null;
 
                 var completed = false;
                 bool hasDataToken = false;
@@ -134,10 +143,11 @@ namespace Azure.Messaging.WebPubSub.Clients
                             else if (reader.ValueTextEquals(DataTypePropertyNameBytes.EncodedUtf8Bytes))
                             {
                                 var dataTypeValue = reader.ReadAsNullableString(DataTypePropertyName);
-                                if (!Enum.TryParse<WebPubSubDataType>(dataTypeValue, true, out dataType))
+                                if (!Enum.TryParse<WebPubSubDataType>(dataTypeValue, true, out var parsedDataType))
                                 {
                                     throw new InvalidDataException($"Unknown '{DataTypePropertyName}': {dataTypeValue}.");
                                 }
+                                dataType = parsedDataType;
                             }
                             else if (reader.ValueTextEquals(AckIdPropertyNameBytes.EncodedUtf8Bytes))
                             {
@@ -204,6 +214,14 @@ namespace Azure.Messaging.WebPubSub.Clients
                             {
                                 fromUserId = reader.ReadAsNullableString(FromUserIdPropertyName);
                             }
+                            else if (reader.ValueTextEquals(InvocationIdPropertyNameBytes.EncodedUtf8Bytes))
+                            {
+                                invocationId = reader.ReadAsNullableString(InvocationIdPropertyName);
+                            }
+                            else if (reader.ValueTextEquals(TargetPropertyNameBytes.EncodedUtf8Bytes))
+                            {
+                                target = reader.ReadAsNullableString(TargetPropertyName);
+                            }
                             else
                             {
                                 reader.CheckRead();
@@ -224,6 +242,11 @@ namespace Azure.Messaging.WebPubSub.Clients
 
                 if (hasDataToken)
                 {
+                    if (dataType == null)
+                    {
+                        throw new InvalidDataException($"Missing required property '{DataTypePropertyName}'.");
+                    }
+
                     if (dataType == WebPubSubDataType.Binary ||
                         dataType == WebPubSubDataType.Protobuf ||
                         dataType == WebPubSubDataType.Text)
@@ -273,14 +296,21 @@ namespace Azure.Messaging.WebPubSub.Clients
                         switch (fromType)
                         {
                             case FromType.Server:
-                                return new List<WebPubSubMessage> { new ServerDataMessage(dataType, data, sequenceId) };
+                                return new List<WebPubSubMessage> { new ServerDataMessage(dataType.Value, data, sequenceId) };
                             case FromType.Group:
                                 AssertNotNull(group, GroupPropertyName);
-                                return new List<WebPubSubMessage> { new GroupDataMessage(group, dataType, data, sequenceId, fromUserId) };
+                                return new List<WebPubSubMessage> { new GroupDataMessage(group, dataType.Value, data, sequenceId, fromUserId) };
                             // Forward compatible
                             default:
                                 return null;
                         }
+
+                    case DownstreamEventType.InvokeResponse:
+                        AssertNotNull(invocationId, InvocationIdPropertyName);
+                        return new List<WebPubSubMessage>
+                        {
+                            new InvokeResponseMessage(invocationId, success, dataType, data, errorDetail == null ? null : new InvokeResponseError(errorDetail.Name, errorDetail.Message))
+                        };
 
                     case DownstreamEventType.System:
                         AssertNotNull(@event, EventPropertyName);
@@ -363,6 +393,48 @@ namespace Azure.Messaging.WebPubSub.Clients
                     case SequenceAckMessage sequenceAckMessage:
                         writer.WriteString(TypePropertyNameBytes, SequenceAckTypeBytes);
                         writer.WriteNumber(SequenceIdPropertyNameBytes, sequenceAckMessage.SequenceId);
+                        break;
+                    case InvokeMessage invokeMessage:
+                        writer.WriteString(TypePropertyNameBytes, InvokeTypeBytes);
+                        writer.WriteString(InvocationIdPropertyNameBytes, invokeMessage.InvocationId);
+                        if (invokeMessage.Target != null)
+                        {
+                            writer.WriteString(TargetPropertyNameBytes, invokeMessage.Target);
+                        }
+                        if (invokeMessage.EventName != null)
+                        {
+                            writer.WriteString(EventPropertyNameBytes, invokeMessage.EventName);
+                        }
+                        if (invokeMessage.DataType != null && invokeMessage.Data != null)
+                        {
+                            writer.WriteString(DataTypePropertyNameBytes, invokeMessage.DataType.Value.ToString());
+                            WriteData(output, writer, invokeMessage.Data, invokeMessage.DataType.Value);
+                        }
+                        break;
+                    case InvokeResponseMessage invokeResponseMessage:
+                        writer.WriteString(TypePropertyNameBytes, InvokeResponseTypeBytes);
+                        writer.WriteString(InvocationIdPropertyNameBytes, invokeResponseMessage.InvocationId);
+                        if (invokeResponseMessage.Success != null)
+                        {
+                            writer.WriteBoolean(SuccessPropertyNameBytes, invokeResponseMessage.Success.Value);
+                        }
+                        if (invokeResponseMessage.Error != null)
+                        {
+                            writer.WritePropertyName(ErrorPropertyNameBytes);
+                            writer.WriteStartObject();
+                            writer.WriteString(ErrorNamePropertyNameBytes, invokeResponseMessage.Error.Name);
+                            writer.WriteString(MessagePropertyNameBytes, invokeResponseMessage.Error.Message);
+                            writer.WriteEndObject();
+                        }
+                        if (invokeResponseMessage.DataType != null && invokeResponseMessage.Data != null)
+                        {
+                            writer.WriteString(DataTypePropertyNameBytes, invokeResponseMessage.DataType.Value.ToString());
+                            WriteData(output, writer, invokeResponseMessage.Data, invokeResponseMessage.DataType.Value);
+                        }
+                        break;
+                    case CancelInvocationMessage cancelInvocationMessage:
+                        writer.WriteString(TypePropertyNameBytes, CancelInvocationTypeBytes);
+                        writer.WriteString(InvocationIdPropertyNameBytes, cancelInvocationMessage.InvocationId);
                         break;
                     default:
                         throw new InvalidDataException($"{message.GetType()} is not supported.");
@@ -451,6 +523,7 @@ namespace Azure.Messaging.WebPubSub.Clients
             Ack,
             Message,
             System,
+            InvokeResponse,
         }
 
         private enum FromType

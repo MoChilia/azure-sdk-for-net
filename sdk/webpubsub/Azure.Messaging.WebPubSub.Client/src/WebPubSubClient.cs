@@ -51,11 +51,13 @@ namespace Azure.Messaging.WebPubSub.Clients
         private readonly Task _processingGroupDataMessageTask;
 
         private readonly object _ackIdLock = new();
+        private readonly object _invocationIdLock = new();
         private readonly object _stopLock = new();
 #pragma warning disable CA2213 // Disposable fields should be disposed
         private readonly SemaphoreSlim _connectionLock = new SemaphoreSlim(1);
 #pragma warning restore CA2213 // Disposable fields should be disposed
         private long _nextAckId = 0;
+        private long _nextInvocationId = 0;
 
         // Fields per start stop
         private Task _stoppingTask;
@@ -70,6 +72,7 @@ namespace Azure.Messaging.WebPubSub.Clients
         private bool _isInitialConnected;
         private DisconnectedMessage _latestDisconnectedMessage;
         private ConcurrentDictionary<long, AckEntity> _ackCache = new();
+        private ConcurrentDictionary<string, InvocationEntity> _invocationCache = new();
 
         // Fields per websocket
         private Task _receiveTask;
@@ -222,6 +225,7 @@ namespace Azure.Messaging.WebPubSub.Clients
             _reconnectionToken = null;
             _connectionId = null;
             _ackCache.Clear();
+            _invocationCache.Clear();
 
             _clientAccessUri = await _webPubSubClientCredential.GetClientAccessUriAsync(cancellationToken).ConfigureAwait(false);
             await ConnectAsync(_clientAccessUri, cancellationToken).ConfigureAwait(false);
@@ -436,6 +440,75 @@ namespace Azure.Messaging.WebPubSub.Clients
             {
                 return new SendEventMessage(eventName, content, dataType, id);
             }, ackId, cancellationToken).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Invoke upstream event and wait for the correlated response.
+        /// </summary>
+        /// <param name="eventName">The event name.</param>
+        /// <param name="content">The data content.</param>
+        /// <param name="dataType">The data type.</param>
+        /// <param name="invocationId">The optional invocation ID. Leave it omitted to generate by library.</param>
+        /// <param name="cancellationToken">An optional <see cref="CancellationToken" /> instance to signal the request to cancel the operation.</param>
+        /// <returns>The invocation response payload.</returns>
+        public virtual async Task<InvokeEventResult> InvokeEventAsync(string eventName, BinaryData content, WebPubSubDataType dataType, string invocationId = null, CancellationToken cancellationToken = default)
+        {
+            ThrowIfDisposed();
+            return await InvokeEventAttemptAsync(eventName, content, dataType, invocationId, cancellationToken).ConfigureAwait(false);
+        }
+
+        internal virtual async Task<InvokeEventResult> InvokeEventAttemptAsync(string eventName, BinaryData content, WebPubSubDataType dataType, string invocationId = null, CancellationToken cancellationToken = default)
+        {
+            var id = invocationId ?? NextInvocationId();
+            var entity = CreateInvocationEntity(id);
+            try
+            {
+                var invokeMessage = new InvokeMessage(id, "event", eventName, content, dataType);
+                try
+                {
+                    await SendCoreAsync(_protocol.GetMessageBytes(invokeMessage), _protocol.WebSocketMessageType, true, cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    entity.SetException(new InvokeEventFailedException("Failed to send invocation message.", id, ex));
+                }
+
+                try
+                {
+                    var response = await entity.Task.AwaitWithCancellation<InvokeResponseMessage>(cancellationToken);
+
+                    if (response.Success != true)
+                    {
+                        if (response.Success == false)
+                        {
+                            throw new InvokeEventFailedException(response.Error?.Message ?? "Invocation failed.", response.InvocationId, response.Error);
+                        }
+
+                        throw new InvokeEventFailedException("Unsupported invoke response frame.", response.InvocationId);
+                    }
+
+                    return new InvokeEventResult(response.InvocationId, response.DataType, response.Data);
+                }
+                catch (Exception ex)
+                {
+                    var shouldCancel = (ex is InvokeEventFailedException invokeEx && invokeEx.ErrorDetail == null) || cancellationToken.IsCancellationRequested;
+                    if (shouldCancel)
+                    {
+                        await SendCancelInvocationAsync(id).ConfigureAwait(false);
+                    }
+
+                    if (ex is OperationCanceledException operationCanceledException)
+                    {
+                        throw new InvokeEventFailedException("Invocation cancelled by cancellation token.", id, operationCanceledException);
+                    }
+
+                    throw;
+                }
+            }
+            finally
+            {
+                _invocationCache.TryRemove(id, out _);
+            }
         }
 
         /// <summary>
@@ -767,6 +840,14 @@ namespace Azure.Messaging.WebPubSub.Clients
                 }
             }
 
+            foreach (var entity in _invocationCache)
+            {
+                if (_invocationCache.TryRemove(entity.Key, out var value))
+                {
+                    value.SetException(new InvokeEventFailedException("Connection is disconnected before receive invoke response from the service", entity.Value.InvocationId));
+                }
+            }
+
             if (closeStatus == WebSocketCloseStatus.PolicyViolation)
             {
                 WebPubSubClientEventSource.Log.StopRecovery(_connectionId, $"The websocket close with status: {WebSocketCloseStatus.PolicyViolation}");
@@ -860,6 +941,9 @@ namespace Azure.Messaging.WebPubSub.Clients
                 case ServerDataMessage serverResponseMessage:
                     HandleServerMessage(serverResponseMessage);
                     break;
+                case InvokeResponseMessage invokeResponseMessage:
+                    HandleInvokeResponseMessage(invokeResponseMessage);
+                    break;
                 default:
                     throw new InvalidDataException($"Received unknown type of message {message.GetType()}");
             }
@@ -924,6 +1008,14 @@ namespace Azure.Messaging.WebPubSub.Clients
                 }
 
                 entity.SetException(new SendMessageFailedException($"Received non-success acknowledge from the service: {ackMessage.Error?.Message ?? string.Empty}", ackMessage.AckId, ackMessage.Error?.Name));
+            }
+        }
+
+        internal void HandleInvokeResponseMessage(InvokeResponseMessage invokeResponseMessage)
+        {
+            if (_invocationCache.TryRemove(invokeResponseMessage.InvocationId, out var entity))
+            {
+                entity.SetResult(invokeResponseMessage);
             }
         }
 
@@ -994,6 +1086,17 @@ namespace Azure.Messaging.WebPubSub.Clients
             return _ackCache.AddOrUpdate(ackId, new AckEntity(ackId), (_, oldEntity) => oldEntity);
         }
 
+        private InvocationEntity CreateInvocationEntity(string invocationId)
+        {
+            var entity = new InvocationEntity(invocationId);
+            if (_invocationCache.TryAdd(invocationId, entity))
+            {
+                return entity;
+            }
+
+            throw new InvokeEventFailedException("Invocation id is already registered.", invocationId);
+        }
+
         private void ThrowIfDisposed()
         {
             if (_disposed)
@@ -1007,6 +1110,26 @@ namespace Azure.Messaging.WebPubSub.Clients
             lock (_ackIdLock)
             {
                 return ++_nextAckId;
+            }
+        }
+
+        private string NextInvocationId()
+        {
+            lock (_invocationIdLock)
+            {
+                return (++_nextInvocationId).ToString();
+            }
+        }
+
+        private async Task SendCancelInvocationAsync(string invocationId)
+        {
+            var message = new CancelInvocationMessage(invocationId);
+            try
+            {
+                await SendCoreAsync(_protocol.GetMessageBytes(message), _protocol.WebSocketMessageType, true, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch
+            {
             }
         }
 
@@ -1059,6 +1182,21 @@ namespace Azure.Messaging.WebPubSub.Clients
             public void SetCancelled() => _tcs.TrySetException(new OperationCanceledException());
             public void SetException(Exception ex) => _tcs.TrySetException(ex);
             public Task<WebPubSubResult> Task => _tcs.Task;
+        }
+
+        private class InvocationEntity
+        {
+            public string InvocationId { get; }
+
+            public InvocationEntity(string invocationId)
+            {
+                InvocationId = invocationId;
+            }
+
+            private TaskCompletionSource<InvokeResponseMessage> _tcs = new TaskCompletionSource<InvokeResponseMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+            public void SetResult(InvokeResponseMessage message) => _tcs.TrySetResult(message);
+            public void SetException(Exception ex) => _tcs.TrySetException(ex);
+            public Task<InvokeResponseMessage> Task => _tcs.Task;
         }
 
         private class SequenceId

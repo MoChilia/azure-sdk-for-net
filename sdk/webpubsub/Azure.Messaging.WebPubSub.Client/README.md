@@ -10,6 +10,7 @@ Use this library to:
 
 - Send messages to groups
 - Send events to the [server](https://learn.microsoft.com/azure/azure-web-pubsub/concept-service-internals#terms)
+- Invoke events on the server and wait for correlated responses (preview)
 - Join and leave groups
 - Listen messages from groups and servers
 
@@ -211,6 +212,19 @@ catch (SendMessageFailedException ex)
     }
 }
 ```
+
+### Invoke upstream event and await response (preview)
+
+Use `client.InvokeEventAsync()` to send an upstream event and await its correlated `invokeResponse` payload.
+
+```C# Snippet:WebPubSubClient_InvokeEvent
+var result = await client.InvokeEventAsync("processOrder", BinaryData.FromObjectAsJson(new { orderId = 1 }), WebPubSubDataType.Json);
+Console.WriteLine($"Invocation result: {result.Data}");
+```
+
+If invocation fails, `InvokeEventFailedException` is thrown and includes `InvocationId` and optional `ErrorDetail` from the service.
+
+_Streaming and service-initiated invocations are not yet supported._
 
 ## Troubleshooting
 

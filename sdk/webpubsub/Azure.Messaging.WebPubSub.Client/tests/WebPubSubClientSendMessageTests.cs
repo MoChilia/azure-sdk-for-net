@@ -131,6 +131,29 @@ namespace Azure.Messaging.WebPubSub.Client.Tests
         }
 
         [Test]
+        public async Task InvokeEventTest()
+        {
+            _wpsClient.WebSocketClientFactory = _factoryMoc.Object;
+            await _wpsClient.StartAsync();
+
+            _ = _wpsClient.InvokeEventAttemptAsync("event", BinaryData.FromString("text"), WebPubSubDataType.Text);
+            var msg = (InvokeMessage)await _tcs.VerifyCalledTimesAsync(1).OrTimeout();
+            Assert.AreEqual("event", msg.EventName);
+            Assert.AreEqual("text", msg.Data.ToString());
+            Assert.AreEqual(WebPubSubDataType.Text, msg.DataType);
+            Assert.AreEqual("event", msg.Target);
+            Assert.AreEqual("1", msg.InvocationId);
+
+            _ = _wpsClient.InvokeEventAttemptAsync("event", BinaryData.FromString("text"), WebPubSubDataType.Text, "invoke-id");
+            msg = (InvokeMessage)await _tcs.VerifyCalledTimesAsync(2).OrTimeout();
+            Assert.AreEqual("event", msg.EventName);
+            Assert.AreEqual("text", msg.Data.ToString());
+            Assert.AreEqual(WebPubSubDataType.Text, msg.DataType);
+            Assert.AreEqual("event", msg.Target);
+            Assert.AreEqual("invoke-id", msg.InvocationId);
+        }
+
+        [Test]
         public void OperationWithInvalidAckIdTest()
         {
             Assert.ThrowsAsync<ArgumentOutOfRangeException>(async () => await _wpsClient.JoinGroupAsync("group", -1));

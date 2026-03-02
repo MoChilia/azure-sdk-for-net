@@ -13,6 +13,11 @@ namespace Azure.Messaging.WebPubSub.Clients
         public string Message { get { throw null; } }
         public string Name { get { throw null; } }
     }
+    public partial class CancelInvocationMessage : Azure.Messaging.WebPubSub.Clients.WebPubSubMessage
+    {
+        public CancelInvocationMessage(string invocationId) { }
+        public string InvocationId { get { throw null; } }
+    }
     public partial class ConnectedMessage : Azure.Messaging.WebPubSub.Clients.WebPubSubMessage
     {
         public ConnectedMessage(string userId, string connectionId, string reconnectionToken) { }
@@ -39,6 +44,43 @@ namespace Azure.Messaging.WebPubSub.Clients
         public JoinGroupMessage(string group, long? ackId) { }
         public long? AckId { get { throw null; } }
         public string Group { get { throw null; } }
+    }
+    public partial class InvokeEventFailedException : System.Exception
+    {
+        internal InvokeEventFailedException() { }
+        public Azure.Messaging.WebPubSub.Clients.InvokeResponseError ErrorDetail { get { throw null; } }
+        public string InvocationId { get { throw null; } }
+    }
+    public partial class InvokeEventResult
+    {
+        internal InvokeEventResult() { }
+        public System.BinaryData Data { get { throw null; } }
+        public Azure.Messaging.WebPubSub.Clients.WebPubSubDataType? DataType { get { throw null; } }
+        public string InvocationId { get { throw null; } }
+    }
+    public partial class InvokeMessage : Azure.Messaging.WebPubSub.Clients.WebPubSubMessage
+    {
+        public InvokeMessage(string invocationId, string target, string eventName, System.BinaryData data = null, Azure.Messaging.WebPubSub.Clients.WebPubSubDataType? dataType = default(Azure.Messaging.WebPubSub.Clients.WebPubSubDataType?)) { }
+        public System.BinaryData Data { get { throw null; } }
+        public Azure.Messaging.WebPubSub.Clients.WebPubSubDataType? DataType { get { throw null; } }
+        public string EventName { get { throw null; } }
+        public string InvocationId { get { throw null; } }
+        public string Target { get { throw null; } }
+    }
+    public partial class InvokeResponseError
+    {
+        public InvokeResponseError(string name, string message) { }
+        public string Message { get { throw null; } }
+        public string Name { get { throw null; } }
+    }
+    public partial class InvokeResponseMessage : Azure.Messaging.WebPubSub.Clients.WebPubSubMessage
+    {
+        public InvokeResponseMessage(string invocationId, bool? success, Azure.Messaging.WebPubSub.Clients.WebPubSubDataType? dataType = default(Azure.Messaging.WebPubSub.Clients.WebPubSubDataType?), System.BinaryData data = null, Azure.Messaging.WebPubSub.Clients.InvokeResponseError error = null) { }
+        public System.BinaryData Data { get { throw null; } }
+        public Azure.Messaging.WebPubSub.Clients.WebPubSubDataType? DataType { get { throw null; } }
+        public Azure.Messaging.WebPubSub.Clients.InvokeResponseError Error { get { throw null; } }
+        public string InvocationId { get { throw null; } }
+        public bool? Success { get { throw null; } }
     }
     public partial class LeaveGroupMessage : Azure.Messaging.WebPubSub.Clients.WebPubSubMessage
     {
@@ -96,6 +138,7 @@ namespace Azure.Messaging.WebPubSub.Clients
         public event System.Func<Azure.Messaging.WebPubSub.Clients.WebPubSubStoppedEventArgs, System.Threading.Tasks.Task> Stopped { add { } remove { } }
         public System.Threading.Tasks.ValueTask DisposeAsync() { throw null; }
         protected virtual System.Threading.Tasks.ValueTask DisposeAsyncCore() { throw null; }
+        public virtual System.Threading.Tasks.Task<Azure.Messaging.WebPubSub.Clients.InvokeEventResult> InvokeEventAsync(string eventName, System.BinaryData content, Azure.Messaging.WebPubSub.Clients.WebPubSubDataType dataType, string invocationId = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
         public virtual System.Threading.Tasks.Task<Azure.Messaging.WebPubSub.Clients.WebPubSubResult> JoinGroupAsync(string group, long? ackId = default(long?), System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
         public virtual System.Threading.Tasks.Task<Azure.Messaging.WebPubSub.Clients.WebPubSubResult> LeaveGroupAsync(string group, long? ackId = default(long?), System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
         public virtual System.Threading.Tasks.Task<Azure.Messaging.WebPubSub.Clients.WebPubSubResult> SendEventAsync(string eventName, System.BinaryData content, Azure.Messaging.WebPubSub.Clients.WebPubSubDataType dataType, long? ackId = default(long?), bool fireAndForget = false, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }

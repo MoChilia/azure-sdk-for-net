@@ -124,6 +124,25 @@ namespace Azure.Messaging.WebPubSub.Client.Tests.Protocols
                 var disconnectedMessage = message as DisconnectedMessage;
                 Assert.AreEqual("msg", disconnectedMessage.Reason);
             });
+            yield return GetData(new { type = "invokeResponse", invocationId = "invoke-id", success = true, dataType = "text", data = "pong" }, message =>
+            {
+                Assert.True(message is InvokeResponseMessage);
+                var invokeResponseMessage = message as InvokeResponseMessage;
+                Assert.AreEqual("invoke-id", invokeResponseMessage.InvocationId);
+                Assert.True(invokeResponseMessage.Success);
+                Assert.AreEqual(WebPubSubDataType.Text, invokeResponseMessage.DataType);
+                Assert.AreEqual("pong", invokeResponseMessage.Data.ToString());
+                Assert.Null(invokeResponseMessage.Error);
+            });
+            yield return GetData(new { type = "invokeResponse", invocationId = "invoke-error", success = false, error = new { name = "BadRequest", message = "oops" } }, message =>
+            {
+                Assert.True(message is InvokeResponseMessage);
+                var invokeResponseMessage = message as InvokeResponseMessage;
+                Assert.AreEqual("invoke-error", invokeResponseMessage.InvocationId);
+                Assert.False(invokeResponseMessage.Success);
+                Assert.AreEqual("BadRequest", invokeResponseMessage.Error.Name);
+                Assert.AreEqual("oops", invokeResponseMessage.Error.Message);
+            });
         }
 
         public static IEnumerable<object[]> GetSerializingTestData()
@@ -145,6 +164,9 @@ namespace Azure.Messaging.WebPubSub.Client.Tests.Protocols
             yield return GetData(new SendEventMessage("event", BinaryData.FromObjectAsJson(new JsonData { Value = "xyz" }), WebPubSubDataType.Json, 738476327894), new { type = "event", @event = "event", ackId = 738476327894u, dataType = "Json", data = new { Value = "xyz" } });
             yield return GetData(new SendEventMessage("event", BinaryData.FromBytes(Convert.FromBase64String("eHl6")), WebPubSubDataType.Binary, 738476327894), new { type = "event", @event = "event", ackId = 738476327894u, dataType = "Binary", data = "eHl6" });
             yield return GetData(new SendEventMessage("event", BinaryData.FromBytes(Convert.FromBase64String("eHl6")), WebPubSubDataType.Protobuf, 738476327894), new { type = "event", @event = "event", ackId = 738476327894u, dataType = "Protobuf", data = "eHl6" });
+            yield return GetData(new InvokeMessage("invoke-id", "event", "echo", BinaryData.FromString("ping"), WebPubSubDataType.Text), new { type = "invoke", invocationId = "invoke-id", target = "event", @event = "echo", dataType = "Text", data = "ping" });
+            yield return GetData(new InvokeResponseMessage("invoke-id", true, WebPubSubDataType.Text, BinaryData.FromString("pong"), null), new { type = "invokeResponse", invocationId = "invoke-id", success = true, dataType = "Text", data = "pong" });
+            yield return GetData(new CancelInvocationMessage("invoke-id"), new { type = "cancelInvocation", invocationId = "invoke-id" });
             yield return GetData(new SequenceAckMessage(123), new { type = "sequenceAck", sequenceId = 123 });
             yield return GetData(new SequenceAckMessage(738476327894), new { type = "sequenceAck", sequenceId = 738476327894u });
         }

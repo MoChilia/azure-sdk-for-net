@@ -158,5 +158,13 @@ namespace Azure.Messaging.WebPubSub.Client.Tests
             await client.SendEventAsync("testEvent", BinaryData.FromString("hello world"), WebPubSubDataType.Text);
             #endregion
         }
+
+        public async Task WebPubSubClientInvokeEvent(WebPubSubClient client)
+        {
+            #region Snippet:WebPubSubClient_InvokeEvent
+            var result = await client.InvokeEventAsync("processOrder", BinaryData.FromObjectAsJson(new { orderId = 1 }), WebPubSubDataType.Json);
+            Console.WriteLine($"Invocation result: {result.Data}");
+            #endregion
+        }
     }
 }

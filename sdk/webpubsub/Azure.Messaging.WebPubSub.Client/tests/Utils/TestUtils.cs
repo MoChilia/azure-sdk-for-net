@@ -140,6 +140,35 @@ namespace Azure.Messaging.WebPubSub.Client.Tests
             }
         });
 
+        public static ReadOnlySequence<byte> GetInvokeResponsePayload(string invocationId, bool success, string errorName = null, string errorMessage = null, string dataType = null, object data = null)
+        {
+            if (string.IsNullOrEmpty(errorName))
+            {
+                return GetPayload(new
+                {
+                    type = "invokeResponse",
+                    invocationId,
+                    success,
+                    dataType,
+                    data
+                });
+            }
+
+            return GetPayload(new
+            {
+                type = "invokeResponse",
+                invocationId,
+                success,
+                error = new
+                {
+                    name = errorName,
+                    message = errorMessage
+                },
+                dataType,
+                data
+            });
+        }
+
         public static WebPubSubClientOptions GetClientOptionsForRetryTest(Action<RetryOptions> action = null)
         {
             var option = new WebPubSubClientOptions();

@@ -3,6 +3,7 @@
 ## 1.1.0-beta.1 (Unreleased)
 
 ### Features Added
+- Added invoke event support with `WebPubSubClient.InvokeEventAsync(...)`, including correlated invoke response handling and cancellation.
 
 ### Breaking Changes
 
