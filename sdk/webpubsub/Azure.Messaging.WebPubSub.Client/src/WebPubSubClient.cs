@@ -478,7 +478,7 @@ namespace Azure.Messaging.WebPubSub.Clients
                 }
                 catch (Exception ex)
                 {
-                    throw new InvocationFailedException("Failed to send invocation message.", resolvedId, ex);
+                    throw new SendMessageFailedException("Failed to send invocation message.", null, ex);
                 }
 
                 response = await entity.Task.AwaitWithCancellation<InvokeResponseMessage>(cancellationToken);
@@ -829,9 +829,9 @@ namespace Azure.Messaging.WebPubSub.Clients
             {
                 if (_invocationCache.TryRemove(entry.Key, out var invEntity))
                 {
-                    invEntity.SetException(new InvocationFailedException(
+                    invEntity.SetException(new SendMessageFailedException(
                         "Connection is disconnected before receiving invoke response from the service",
-                        entry.Key,
+                        null,
                         string.Empty));
                 }
             }
@@ -1110,8 +1110,8 @@ namespace Azure.Messaging.WebPubSub.Clients
                         throw;
                     }
 
-                    // InvocationFailedException should not be retried
-                    if (typeof(T) == typeof(InvokeEventResult) && ex is InvocationFailedException)
+                    // InvocationFailedException is non-retryable (service-originated or logic error)
+                    if (ex is InvocationFailedException)
                     {
                         throw;
                     }

@@ -448,7 +448,7 @@ namespace Azure.Messaging.WebPubSub.Client.Tests
             clientMoc.Setup(c => c.InvokeEventAttemptAsync(It.IsAny<string>(), It.IsAny<BinaryData>(), It.IsAny<WebPubSubDataType>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(() =>
             {
                 tcs.IncreaseCallTimes(null);
-                throw new InvocationFailedException("invocation failed", "invoke-1", string.Empty);
+                throw new InvocationFailedException("invocation failed", "invoke-1", "BadRequest");
             });
             clientMoc.CallBase = true;
             var client = clientMoc.Object;

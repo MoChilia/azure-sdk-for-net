@@ -101,6 +101,9 @@ namespace Azure.Messaging.WebPubSub.Clients
 
                 var completed = false;
                 bool hasDataToken = false;
+                bool hasErrorToken = false;
+                string parsedErrorName = null;
+                string parsedErrorMessage = null;
                 BinaryData data = null;
                 SequencePosition dataStart = default;
                 Utf8JsonReader dataReader = default;
@@ -189,14 +192,30 @@ namespace Azure.Messaging.WebPubSub.Clients
                             }
                             else if (reader.ValueTextEquals(ErrorPropertyNameBytes.EncodedUtf8Bytes))
                             {
-                                if (eventType == DownstreamEventType.InvokeResponse)
+                                hasErrorToken = true;
+                                var errorCompleted = false;
+                                reader.CheckRead();
+                                reader.EnsureObjectStart();
+                                do
                                 {
-                                    invokeResponseError = ReadInvokeResponseError(reader);
+                                    switch (reader.TokenType)
+                                    {
+                                        case JsonTokenType.PropertyName:
+                                            if (reader.ValueTextEquals(ErrorNamePropertyNameBytes.EncodedUtf8Bytes))
+                                            {
+                                                parsedErrorName = reader.ReadAsNullableString(ErrorNamePropertyName);
+                                            }
+                                            else if (reader.ValueTextEquals(MessagePropertyNameBytes.EncodedUtf8Bytes))
+                                            {
+                                                parsedErrorMessage = reader.ReadAsNullableString(MessagePropertyName);
+                                            }
+                                            break;
+                                        case JsonTokenType.EndObject:
+                                            errorCompleted = true;
+                                            break;
+                                    }
                                 }
-                                else
-                                {
-                                    errorDetail = ReadErrorDetail(reader);
-                                }
+                                while (!errorCompleted && reader.CheckRead());
                             }
                             else if (reader.ValueTextEquals(FromPropertyNameBytes.EncodedUtf8Bytes))
                             {
@@ -242,6 +261,18 @@ namespace Azure.Messaging.WebPubSub.Clients
                 if (type == null)
                 {
                     throw new InvalidDataException($"Missing required property '{TypePropertyName}'.");
+                }
+
+                if (hasErrorToken)
+                {
+                    if (eventType == DownstreamEventType.InvokeResponse)
+                    {
+                        invokeResponseError = new InvokeResponseError(parsedErrorName, parsedErrorMessage);
+                    }
+                    else
+                    {
+                        errorDetail = new AckMessageError(parsedErrorName, parsedErrorMessage);
+                    }
                 }
 
                 if (hasDataToken)
@@ -414,71 +445,6 @@ namespace Azure.Messaging.WebPubSub.Clients
             {
                 ReusableUtf8JsonWriter.Return(jsonWriterLease);
             }
-        }
-
-        private static InvokeResponseError ReadInvokeResponseError(Utf8JsonReader reader)
-        {
-            string errorName = null;
-            string errorMessage = null;
-
-            var completed = false;
-            reader.CheckRead();
-            reader.EnsureObjectStart();
-            do
-            {
-                switch (reader.TokenType)
-                {
-                    case JsonTokenType.PropertyName:
-                        if (reader.ValueTextEquals(ErrorNamePropertyNameBytes.EncodedUtf8Bytes))
-                        {
-                            errorName = reader.ReadAsNullableString(ErrorNamePropertyName);
-                        }
-                        else if (reader.ValueTextEquals(MessagePropertyNameBytes.EncodedUtf8Bytes))
-                        {
-                            errorMessage = reader.ReadAsNullableString(MessagePropertyName);
-                        }
-                        break;
-                    case JsonTokenType.EndObject:
-                        completed = true;
-                        break;
-                }
-            }
-            while (!completed && reader.CheckRead());
-
-            return new InvokeResponseError(errorName, errorMessage);
-        }
-
-        private static AckMessageError ReadErrorDetail(Utf8JsonReader reader)
-        {
-            string errorName = null;
-            string errorMessage = null;
-
-            var completed = false;
-            reader.CheckRead();
-            // Error detail should start with object
-            reader.EnsureObjectStart();
-            do
-            {
-                switch (reader.TokenType)
-                {
-                    case JsonTokenType.PropertyName:
-                        if (reader.ValueTextEquals(ErrorNamePropertyNameBytes.EncodedUtf8Bytes))
-                        {
-                            errorName = reader.ReadAsNullableString(ErrorNamePropertyName);
-                        }
-                        else if (reader.ValueTextEquals(MessagePropertyNameBytes.EncodedUtf8Bytes))
-                        {
-                            errorMessage = reader.ReadAsNullableString(MessagePropertyName);
-                        }
-                        break;
-                    case JsonTokenType.EndObject:
-                        completed = true;
-                        break;
-                }
-            }
-            while (!completed && reader.CheckRead());
-
-            return new AckMessageError(errorName, errorMessage);
         }
 
         private static void AssertNotNull<T>(T value, string propertyName)
