@@ -45,6 +45,13 @@ namespace Azure.Messaging.WebPubSub.Clients
         public string Code { get { throw null; } }
         public string InvocationId { get { throw null; } }
     }
+    public partial class InvokeEventResult
+    {
+        internal InvokeEventResult() { }
+        public System.BinaryData Data { get { throw null; } }
+        public Azure.Messaging.WebPubSub.Clients.WebPubSubDataType? DataType { get { throw null; } }
+        public string InvocationId { get { throw null; } }
+    }
     public partial class InvokeMessage : Azure.Messaging.WebPubSub.Clients.WebPubSubMessage
     {
         public InvokeMessage(string invocationId, string eventName, System.BinaryData data, Azure.Messaging.WebPubSub.Clients.WebPubSubDataType dataType, string target = "event") { }
@@ -53,13 +60,6 @@ namespace Azure.Messaging.WebPubSub.Clients
         public string EventName { get { throw null; } }
         public string InvocationId { get { throw null; } }
         public string Target { get { throw null; } }
-    }
-    public partial class InvokeEventResult
-    {
-        internal InvokeEventResult() { }
-        public System.BinaryData Data { get { throw null; } }
-        public Azure.Messaging.WebPubSub.Clients.WebPubSubDataType? DataType { get { throw null; } }
-        public string InvocationId { get { throw null; } }
     }
     public partial class InvokeResponseError
     {
