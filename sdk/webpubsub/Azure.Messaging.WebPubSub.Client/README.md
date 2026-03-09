@@ -252,8 +252,6 @@ catch (OperationCanceledException)
 }
 ```
 
-To cancel a pending invocation, you can cancel the `CancellationTokenSource` to send a cancel message to the server.
-
 _Streaming and service-initiated invocations are not yet supported._
 
 ## Troubleshooting
