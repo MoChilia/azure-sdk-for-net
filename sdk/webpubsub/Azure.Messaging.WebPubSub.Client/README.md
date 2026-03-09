@@ -237,6 +237,25 @@ catch (InvocationFailedException ex)
 }
 ```
 
+To enforce a timeout on the invocation, use `CancellationTokenSource` with a deadline. When the timeout elapses, the client automatically sends a `cancelInvocation` message to the service.
+
+```C# Snippet:WebPubSubClient_InvokeEventTimeout
+using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+try
+{
+    var result = await client.InvokeEventAsync("processOrder", BinaryData.FromObjectAsJson(new { orderId = 1 }), WebPubSubDataType.Json, cancellationToken: cts.Token);
+    Console.WriteLine($"Invocation result: {result.Data}");
+}
+catch (OperationCanceledException)
+{
+    Console.WriteLine("Invocation timed out and was cancelled.");
+}
+```
+
+To cancel a pending invocation, you can cancel the `CancellationTokenSource` to send a cancel message to the server.
+
+_Streaming and service-initiated invocations are not yet supported._
+
 ## Troubleshooting
 
 ### Setting up console logging

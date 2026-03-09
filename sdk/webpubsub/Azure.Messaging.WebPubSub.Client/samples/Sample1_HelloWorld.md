@@ -107,3 +107,18 @@ catch (InvocationFailedException ex)
     Console.WriteLine($"Invocation {ex.InvocationId} failed: {ex.Message}, Code: {ex.Code}");
 }
 ```
+
+### Invoke event with timeout
+
+```C# Snippet:WebPubSubClient_InvokeEventTimeout
+using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+try
+{
+    var result = await client.InvokeEventAsync("processOrder", BinaryData.FromObjectAsJson(new { orderId = 1 }), WebPubSubDataType.Json, cancellationToken: cts.Token);
+    Console.WriteLine($"Invocation result: {result.Data}");
+}
+catch (OperationCanceledException)
+{
+    Console.WriteLine("Invocation timed out and was cancelled.");
+}
+```
