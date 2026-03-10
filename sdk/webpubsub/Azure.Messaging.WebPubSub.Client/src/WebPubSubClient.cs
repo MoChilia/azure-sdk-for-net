@@ -52,7 +52,6 @@ namespace Azure.Messaging.WebPubSub.Clients
 
         private readonly object _ackIdLock = new();
         private readonly object _stopLock = new();
-        private readonly object _invocationIdLock = new();
 #pragma warning disable CA2213 // Disposable fields should be disposed
         private readonly SemaphoreSlim _connectionLock = new SemaphoreSlim(1);
 #pragma warning restore CA2213 // Disposable fields should be disposed
@@ -1147,7 +1146,7 @@ namespace Azure.Messaging.WebPubSub.Clients
             public Task<WebPubSubResult> Task => _tcs.Task;
         }
 
-        private class InvocationEntity
+        private sealed class InvocationEntity
         {
             public string InvocationId { get; }
 
@@ -1164,10 +1163,7 @@ namespace Azure.Messaging.WebPubSub.Clients
 
         private string NextInvocationId()
         {
-            lock (_invocationIdLock)
-            {
-                return (++_nextInvocationId).ToString();
-            }
+            return Interlocked.Increment(ref _nextInvocationId).ToString();
         }
 
         private static InvokeEventResult MapInvokeResponse(InvokeResponseMessage message)
